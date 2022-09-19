@@ -49,7 +49,7 @@ disk=(disk disk2)
 raid=(RAID)
 ups=(UpsModel UpsSN UpsStatus UpsLoad UpsBatteryCharge UpsBatteryChargeWarning UpsBatteryVoltageValue UpsBatteryVoltageNominal UpsBatteryChargeLow UpsBatteryRuntimeValue UpsBatteryRuntimeValueMinutes UpsBatteryRuntimeLow UpsBatteryRuntimeLowMinutes UpsInputVoltageValue UpsInputTransferLow UpsInputTransferHigh UpsOutputVoltageValue)
 checks=()
-
+performanceData=""
 
 #OID declarations
 OID_syno="1.3.6.1.4.1.6574"
@@ -263,6 +263,7 @@ else
     healthString="Synology"
 
     DSMUpgradeAvailable=$(echo "$syno" | grep $OID_DSMUpgradeAvailable | cut -d "=" -f2 | sed 's/^[ \t]*//;s/[ \t]*$//')
+    DSMUpgradeAvailablePerf=$DSMUpgradeAvailable
     case $DSMUpgradeAvailable in
 	"1")	DSMUpgradeAvailable="Available";	if [ "$checkDSMUpdate" = "yes" ]; then healthWarningStatus=1;		healthString="$healthString, DSM update available"; fi ;;
 	"2")	DSMUpgradeAvailable="Unavailable";;
@@ -284,8 +285,10 @@ else
         #Check system status
         if [ "$systemStatus" = "1" ] ; then
             systemStatus="Normal"
+            performanceData+="systemStatus=1 "
         else
             systemStatus="Failed"
+            performanceData+="systemStatus=0 "
             healthCriticalStatus=1
             healthString="$healthString, System status: $systemStatus "
         fi
@@ -293,29 +296,32 @@ else
 
     if [ "$checkType" = "temperature" ] ; then
         #Check system temperature
+        performanceData+="synology_temp=$temperature "
         if [ "$temperature" -gt "$warningTemperature" ] ; then
             if [ "$temperature" -gt "$criticalTemperature" ] ; then
-                    temperature=" $temperature (CRITICAL) | synology_temp=$temperature"
+                    temperature=" $temperature (CRITICAL)"
                     healthCriticalStatus=1
                     healthString="$healthString, temperature: $temperature "
             else
-                    temperature=" $temperature (WARNING) | synology_temp=$temperature"
+                    temperature=" $temperature (WARNING)"
                     healthWarningStatus=1
                     healthString="$healthString, temperature: $temperature "
             fi
         else
-            temperature=" $temperature (Normal) | synology_temp=$temperature"
+            temperature=" $temperature (Normal)"
         fi
     fi
 
 
     if [ "$checkType" = "power" ] ; then
-    #Check power status
+        #Check power status
         if [ "$powerStatus" = "1" ] ; then
             powerStatus="Normal"
+            performanceData+="powerStatus=1 "
         else
             powerStatus="Failed";
             healthCriticalStatus=1
+            performanceData+="powerStatus=0 "
             healthString="$healthString, Power status: $powerStatus "
         fi
     fi
@@ -325,9 +331,11 @@ else
         #Check system fan status
         if [ "$systemFanStatus" = "1" ] ; then
             systemFanStatus="Normal"
+            performanceData+="systemFanStatus=1 "
         else
             systemFanStatus="Failed";
             healthCriticalStatus=1
+            performanceData+="systemFanStatus=0 "
             healthString="$healthString, System fan status: $systemFanStatus "
         fi
 
@@ -335,9 +343,11 @@ else
         #Check CPU fan status
         if [ "$CPUFanStatus" = "1" ] ; then
             CPUFanStatus="Normal"
+            performanceData+="CPUFanStatus=1 "
         else
             CPUFanStatus="Failed";
             healthCriticalStatus=1
+            performanceData+="CPUFanStatus=0 "
             healthString="$healthString, CPU fan status: $CPUFanStatus "
         fi
     fi
@@ -380,6 +390,7 @@ else
         for i in `seq 1 $nbRAID`;
         do
             RAIDName[$i]=$(echo "$syno" | grep $OID_RAIDName.$(($i-1)) | cut -d "=" -f2)
+            RAIDNamePerf=$(echo $RAIDName| tr -d \")
             RAIDStatus[$i]=$(echo "$syno" | grep $OID_RAIDStatus.$(($i-1)) | cut -d "=" -f2 | sed 's/^[ \t]*//;s/[ \t]*$//')
 
             storageName[$i]=$(echo "${RAIDName[$i]}" | sed -e 's/[[:blank:]]//g' | sed -e 's/\"//g' | sed 's/.*/&/')
@@ -409,6 +420,7 @@ else
                         healthString="$healthString,${RAIDName[$i]}: ${storagePercentUsedString[$i]}"
                     fi
                 fi
+                performanceData+="raid_$RAIDNamePerf=${storagePercentUsedString[$i]} "
             fi
 
             case ${RAIDStatus[$i]} in
@@ -433,6 +445,7 @@ else
                           echo "$healthString  s/n:		$serialNumber" ;
                           echo "$healthString System Status:		 $systemStatus" ;;
         "version")        echo "DSM Version: $DSMVersion $healthString" ;
+                          performanceData+="DSMUpgradeAvailable=$DSMUpgradeAvailablePerf " ;
                           echo "DSM update:		 $DSMUpgradeAvailable" ;;
         "temperature")    echo "$healthString Temperature:	$temperature" ;;
         "power")	  echo "$healthString Power Status:		 $powerStatus" ;;
@@ -442,6 +455,7 @@ else
                           for i in `seq 1 $nbDisk`;
                           do
                               echo " ${diskID[$i]} (model:${diskModel[$i]}) status:${diskStatus[$i]} temperature:${diskTemp[$i]}" ;
+                              performanceData+="diskTemp_${diskID[$i]}=${diskTemp[$i]} "
                               done ;;
         "raid")           echo " $healthString Number of RAID volume:   $nbRAID" ;
                           for i in `seq 1 $nbRAID`;
@@ -472,7 +486,7 @@ else
             upsInputTransferLow=$(echo "$syno" | grep $OID_UpsInputTransferLow | cut -d "=" -f2)
             upsInputTransferHigh=$(echo "$syno" | grep $OID_UpsInputTransferHigh | cut -d "=" -f2)
             upsOutputVoltageValue=$(echo "$syno" | grep $OID_UpsOutputVoltageValue | cut -d "=" -f2)
-            upsPerformanceData=" | UpsLoad=${upsLoad:1} UpsBatteryCharge=${upsBatteryCharge:1} UpsBatteryChargeWarning=${upsBatteryChargeWarning:1} UpsBatteryChargeLow=${upsBatteryChargeLow:1} UpsBatteryVoltageValue=${upsBatteryVoltageValue:1} UpsBatteryVoltageNominal=${upsBatteryVoltageNominal:1} UpsBatteryRuntimeValue=${upsBatteryRuntimeValue:1} UpsBatteryRuntimeValueMinutes=${upsBatteryRuntimeValueMinutes:1} UpsBatteryRuntimeLow=${upsBatteryRuntimeLow:1} UpsBatteryRuntimeLowMinutes=${upsBatteryRuntimeLowMinutes:1} UpsInputVoltageValue=${upsInputVoltageValue:1} UpsInputTransferLow=${upsInputTransferLow:1} UpsInputTransferHigh=${upsInputTransferHigh:1} UpsOutputVoltageValue=${upsOutputVoltageValue:1}"
+            performanceData="UpsLoad=${upsLoad:1} UpsBatteryCharge=${upsBatteryCharge:1} UpsBatteryChargeWarning=${upsBatteryChargeWarning:1} UpsBatteryChargeLow=${upsBatteryChargeLow:1} UpsBatteryVoltageValue=${upsBatteryVoltageValue:1} UpsBatteryVoltageNominal=${upsBatteryVoltageNominal:1} UpsBatteryRuntimeValue=${upsBatteryRuntimeValue:1} UpsBatteryRuntimeValueMinutes=${upsBatteryRuntimeValueMinutes:1} UpsBatteryRuntimeLow=${upsBatteryRuntimeLow:1} UpsBatteryRuntimeLowMinutes=${upsBatteryRuntimeLowMinutes:1} UpsInputVoltageValue=${upsInputVoltageValue:1} UpsInputTransferLow=${upsInputTransferLow:1} UpsInputTransferHigh=${upsInputTransferHigh:1} UpsOutputVoltageValue=${upsOutputVoltageValue:1}"
 
 
 	    echo "UPS:"
@@ -497,24 +511,18 @@ else
 	echo "";
 
     if [ "$healthCriticalStatus" = "1" ] ; then
-	echo "CRITICAL - $healthString"
-        if [ "$checkType" = "ups" ] ; then
-        echo $upsPerformanceData
-        fi
-	exit 2
+        echo "CRITICAL - $healthString"
+        echo "| $performanceData"
+        exit 2
     fi
     if [ "$healthWarningStatus" = "1" ] ; then
-	echo "WARNING - $healthString"
-        if [ "$checkType" = "ups" ] ; then
-        echo $upsPerformanceData
-        fi
-	exit 1
+        echo "WARNING - $healthString"
+        echo "| $performanceData"
+        exit 1
     fi
     if [ "$healthCriticalStatus" = "0" ] && [ "$healthWarningStatus" = "0" ] ; then
-	echo "OK - $healthString is in good health"
-        if [ "$checkType" = "ups" ] ; then
-        echo $upsPerformanceData
-        fi
-	exit 0
+        echo "OK - $healthString is in good health"
+        echo "| $performanceData"
+        exit 0
     fi
 fi
